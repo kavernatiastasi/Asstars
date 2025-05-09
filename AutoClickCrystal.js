@@ -9,8 +9,6 @@
 // @match        https://animestars.org/*
 // @match        https://asstars.tv/*
 // @grant        none
-// @downloadURL  https://update.greasyfork.org/scripts/531451/Auto%20Click%20Crystals%20%20Anti-AFK%20-%20AnimeStars.user.js
-// @updateURL    https://update.greasyfork.org/scripts/531451/Auto%20Click%20Crystals%20%20Anti-AFK%20-%20AnimeStars.meta.js
 // ==/UserScript==
 
 (function () {
