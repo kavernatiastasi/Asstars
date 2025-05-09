@@ -17,7 +17,7 @@
 
     // --- Configuration ---
     const CONFIG = {
-        MAIN_INTERVAL_MS: 600,  // Основний інтервал оновлення
+        MAIN_INTERVAL_MS: 550,  // Основний інтервал оновлення
         DELAY_FOR_CHECK_AFTER_REFRESH_MS: 200, // Затримка перевірки кнопки Донат після Оновити
         DELAY_AFTER_DONATE_CLICK_CHECK_MS: 500, // Затримка перевірки попапу ПІСЛЯ кліку на Донат
         // Селектори
@@ -50,7 +50,7 @@
     const button = document.createElement('button');
     document.body.appendChild(button);
     Object.assign(button.style, { /* ... стилі кнопки ... */
-        position: 'fixed', top: '65px', left: '30px', zIndex: '10000',
+        position: 'fixed', top: '65px', left: '120px', zIndex: '10000',
         padding: '12px 20px', fontSize: '16px', color: 'white', border: 'none',
         borderRadius: '50px', cursor: 'pointer', fontFamily: '"Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
         boxShadow: '0 6px 12px rgba(0, 0, 0, 0.2), 0 0 0 0 rgba(52, 152, 219, 0.0)',
