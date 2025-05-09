@@ -49,7 +49,7 @@
         DIRECT_NEED_COUNT_SELECTOR: "#owners-need",
         DIRECT_TRADE_COUNT_SELECTOR: "#owners-trade",
         ITEMS_PER_USER_LIST_PAGE: 50,
-        DEBUG_LOGS: true // <<< УВІМКНЕНО ДЛЯ ДІАГНОСТИКИ >>>
+        DEBUG_LOGS: false // <<< УВІМКНЕНО ДЛЯ ДІАГНОСТИКИ >>>
     };
 
     let baseUrl = "";
