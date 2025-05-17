@@ -1,6 +1,6 @@
 // SCRIPT START //
 // ==UserScript==
-// @name             Auto Click Crystals & Anti-AFK (v1.9.9 - Diamond Selector Debug FULL)
+// @name             Auto Click Crystals & Anti-AFK (v1.9.9 - Linked TG bot for notifications)
 // @namespace        http://tampermonkey.net/
 // @version          1.9.9
 // @description      Детальне логування для виявлення діаманта в повідомленні. Повна версія.
@@ -11,6 +11,7 @@
 // @match            https://asstars.tv/*
 // @grant            GM_xmlhttpRequest
 // @grant            unsafeWindow
+// @connect          telegram-webhook.kavernatiastasi.workers.dev
 // ==/UserScript==
 
 (function () {
