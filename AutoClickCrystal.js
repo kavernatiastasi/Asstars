@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              Auto Click Crystals & Anti-AFK
 // @namespace         http://tampermonkey.net/
-// @version           2.0.1
+// @version           2.0.2
 // @description       Автоматично збирає кристали в чаті Animestars/AStars, нагородні картки. Запобігає AFK. Закриває спливаючі вікна. Надсилає Telegram-сповіщення.
 // @description:en    Automatically collects chat crystals on Animestars/AStars, reward cards. Prevents AFK. Closes popups. Sends Telegram notifications.
 // @author            Kavernatiastasi (assisted by AI)
@@ -149,7 +149,9 @@
             });
             const data = await response.json();
             if (data.status === 'ok') {
-                showNotification('🎁 Подарунок активовано!', data.text || 'Код успішно використано.');
+                if (CONFIG.SHOW_GIFT_ACTIVATION_NOTIFICATIONS) { // ЗМІНА: Перевірка налаштування
+                    showNotification('🎁 Подарунок активовано!', data.text || 'Код успішно використано.');
+                }
                 log(`Helper: Подарунковий код ${giftCode} успішно активовано: ${data.text}`, "info");
                 giftButton.remove();
             } else {
@@ -255,7 +257,9 @@
                 const ownerId = data.cards.owner_id;
                 const cardName = data.cards.name || "невідома";
                 log(`Helper: 🎉 Знайдено нову нагородну картку: "${cardName}" (owner_id: ${ownerId}). Спроба отримати...`, "info");
-                showNotification('💎 Нова картка!', `Знайдено картку: "${cardName}". Отримуємо...`);
+               if (CONFIG.SHOW_REWARD_CARD_NOTIFICATIONS) {
+                   showNotification('💎 Нова картка!', `Знайдено картку: "${cardName}". Отримуємо...`);
+               }
                 await sleep(SOURCE_SCRIPT_DELAY);
 
                 if (typeof $ === 'undefined') {
@@ -276,7 +280,9 @@
                             // ЗМІНА: Гнучкий аналіз відповіді
                             if (jqXHR.status === 200 && (jqXHR.responseText.trim() === "" || jqXHR.responseText.toLowerCase().includes("success") || jqXHR.responseText.toLowerCase().includes("ok") || jqXHR.responseText.includes(cardName))) {
                                  log(`Helper: Картку "${cardName}" ймовірно успішно отримано (статус 200, відповідь: "${jqXHR.responseText.substring(0,100)}").`, "info");
-                                 showNotification('✅ Картку отримано!', `Картка "${cardName}" тепер у вашій колекції.`);
+                                 if (CONFIG.SHOW_REWARD_CARD_NOTIFICATIONS) {
+                                     showNotification('✅ Картку отримано!', `Картка "${cardName}" тепер у вашій колекції.`);
+                                 }
                             } else {
                                 try {
                                     // Спроба розпарсити як JSON, якщо не порожня і не текстовий успіх
