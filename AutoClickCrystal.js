@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name              Auto Click Crystals & Anti-AFK (Your Version)
+// @name              Auto Click Crystals & Anti-AFK
 // @namespace         http://tampermonkey.net/
-// @version           2.0.0
+// @version           2.0.1
 // @description       Автоматично збирає кристали в чаті Animestars/AStars, нагородні картки. Запобігає AFK. Закриває спливаючі вікна. Надсилає Telegram-сповіщення.
 // @description:en    Automatically collects chat crystals on Animestars/AStars, reward cards. Prevents AFK. Closes popups. Sends Telegram notifications.
-// @author            Kavernatiastasi (assisted by AI & Google Gemini)
+// @author            Kavernatiastasi (assisted by AI)
 // @match             https://asstars.club/*
 // @match             https://asstars1.astars.club/*
 // @match             https://animestars.org/*
@@ -41,7 +41,6 @@
         log("dle_login_hash не знайдено. Багато AJAX функцій не працюватимуть.", "error");
         return null;
     }
-    // --- Кінець допоміжних функцій з Card Helper ---
 
     const CONFIG = {
         CHAT_MESSAGE_SELECTOR: ".lc_chat_li",
@@ -74,7 +73,9 @@
         HELPER_GIFT_CHECK_INTERVAL_MS: 2100,
         HELPER_PING_INTERVAL_MS: 31000,
         HELPER_REWARD_CARD_INTERVAL_MS: 10000,
-        HELPER_ENABLE_GLOBAL_AUDIO_BLOCK: false
+        HELPER_ENABLE_GLOBAL_AUDIO_BLOCK: false,
+        SHOW_GIFT_ACTIVATION_NOTIFICATIONS: false,
+        SHOW_REWARD_CARD_NOTIFICATIONS: false
     };
 
     let isScriptActive;
@@ -114,7 +115,7 @@
     function helper_clearCardNotifications() {
         if (!isScriptActive) return;
         try {
-            const cardNotification = document.querySelector('.card-notification'); // ВИПРАВЛЕНО: :first видалено
+            const cardNotification = document.querySelector('.card-notification');
 
             if (cardNotification && cardNotification.offsetParent !== null) {
                 log("Helper: Спроба закрити .card-notification", "debug");
