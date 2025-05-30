@@ -1,52 +1,28 @@
+// SCRIPT START //
 // ==UserScript==
-// @name              Auto Click Crystals & Anti-AFK
-// @namespace         http://tampermonkey.net/
-// @version           2.0.2
-// @description       Автоматично збирає кристали в чаті Animestars/AStars, нагородні картки. Запобігає AFK. Закриває спливаючі вікна. Надсилає Telegram-сповіщення.
-// @description:en    Automatically collects chat crystals on Animestars/AStars, reward cards. Prevents AFK. Closes popups. Sends Telegram notifications.
-// @author            Kavernatiastasi (assisted by AI)
-// @match             https://asstars.club/*
-// @match             https://asstars1.astars.club/*
-// @match             https://animestars.org/*
-// @match             https://asstars.tv/*
-// @require           https://code.jquery.com/jquery-3.7.1.min.js
-// @grant             GM_xmlhttpRequest
-// @grant             unsafeWindow
-// @connect           telegram-webhook.kavernatiastasi.workers.dev
-// @icon              https://www.google.com/s2/favicons?sz=64&domain=animestars.org
+// @name             Auto Click Crystals & Anti-AFK (v1.9.9 - Linked TG bot for notifications)
+// @namespace        http://tampermonkey.net/
+// @version          1.9.9
+// @description      Детальне логування для виявлення діаманта в повідомленні. Повна версія.
+// @author           Kavernatiastasi (assisted by AI)
+// @match            https://astars.club/*
+// @match            https://asstars1.astars.club/*
+// @match            https://animestars.org/*
+// @match            https://asstars.tv/*
+// @grant            GM_xmlhttpRequest
+// @grant            unsafeWindow
+// @connect          telegram-webhook.kavernatiastasi.workers.dev
 // ==/UserScript==
 
 (function () {
     'use strict';
-    // console.log("[AutoCrystalScript] SCRIPT EXECUTION STARTED (v1.9.9 CH3 - ParserError Fix)");
-
-    // --- Допоміжні функції та константи з Card Helper ---
-    const SOURCE_SCRIPT_DELAY = 50;
-
-    async function sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    function getDleLoginHash() {
-        try {
-            if (typeof unsafeWindow !== 'undefined' && unsafeWindow.dle_login_hash) {
-                return unsafeWindow.dle_login_hash;
-            }
-            if (typeof dle_login_hash !== 'undefined') {
-                return dle_login_hash;
-            }
-        } catch (e) {
-            log("Помилка доступу до dle_login_hash: " + e.message, "error");
-        }
-        log("dle_login_hash не знайдено. Багато AJAX функцій не працюватимуть.", "error");
-        return null;
-    }
+    // console.log("[AutoCrystalScript] SCRIPT EXECUTION STARTED (v1.9.9 Diamond Selector Debug FULL)");
 
     const CONFIG = {
         CHAT_MESSAGE_SELECTOR: ".lc_chat_li",
         CHAT_MESSAGE_LIST_SELECTOR: "#lc_chat",
         CHAT_AUTHOR_SELECTOR: ".lc_chat_li_autor",
-        DIAMOND_SELECTOR: "#diamonds-chat",
+        DIAMOND_SELECTOR: "#diamonds-chat", // Залишаємо поки, але будемо пробувати й інші в processSingleMessage
         TIME_SELECTOR: ".lc_chat_li_date",
         CHAT_ACTIVITY_AREA_SELECTOR: ".lc_area",
         POPUP_CLOSE_SELECTORS: [
@@ -54,8 +30,8 @@
             ".notification-close", ".close-btn", "[data-dismiss='modal']"
         ],
         CRYSTAL_BOT_NAME_LC: "ии космический посикунчик",
-        SCRIPT_STATE_KEY: "autoCrystalObserverNotifyActive_v1_9_3_CH3",
-        CLICKED_TIMESTAMPS_KEY: "autoCrystalClickedTimestamps_v1_9_3_CH3",
+        SCRIPT_STATE_KEY: "autoCrystalObserverNotifyActive_v1_9_3",
+        CLICKED_TIMESTAMPS_KEY: "autoCrystalClickedTimestamps_v1_9_3",
         CONTROL_BUTTON_ID: "auto-crystal-toggle-button",
         INFO_PANEL_ID: "crystal-info-panel",
         MAX_STORED_TIMESTAMPS: 50,
@@ -68,14 +44,7 @@
         CARD_POPUP_CLOSE_DELAY_MS: 2000,
         ENABLE_TELEGRAM_NOTIFICATIONS: true,
         WORKER_WEBHOOK_URL: "https://telegram-webhook.kavernatiastasi.workers.dev/",
-        DEBUG_LOGS: false,
-
-        HELPER_GIFT_CHECK_INTERVAL_MS: 2100,
-        HELPER_PING_INTERVAL_MS: 31000,
-        HELPER_REWARD_CARD_INTERVAL_MS: 10000,
-        HELPER_ENABLE_GLOBAL_AUDIO_BLOCK: false,
-        SHOW_GIFT_ACTIVATION_NOTIFICATIONS: false,
-        SHOW_REWARD_CARD_NOTIFICATIONS: false
+        DEBUG_LOGS: false
     };
 
     let isScriptActive;
@@ -89,241 +58,51 @@
     let infoPanelElement = null;
     let cardFeatureObserver = null;
 
-    let helper_periodicChecksIntervalId = null;
-    let helper_pingIntervalId = null;
-    let helper_rewardCardIntervalId = null;
-    let originalAudioPlay = null;
-
     const powerOnIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="margin-right: 5px; vertical-align: middle;"><path d="M16.56 5.44l-1.45-1.45C13.95 2.83 12 2 12 2s-1.95.83-3.11 1.99L7.44 5.44C5.2 6.95 4.01 9.58 4.01 12.5c0 3.93 3.24 7.16 7.27 7.47l.01.53H11v2h2v-2h-.28l-.01-.53C16.76 19.66 20 16.43 20 12.5c0-2.92-1.19-5.55-3.44-7.06zM12 20c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"></path><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"></path></svg>`;
     const powerOffIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="margin-right: 5px; vertical-align: middle;"><path d="M16.56 5.44l-1.45-1.45C13.95 2.83 12 2 12 2s-1.95.83-3.11 1.99L7.44 5.44C5.2 6.95 4.01 9.58 4.01 12.5c0 3.93 3.24 7.16 7.27 7.47l.01.53H11v2h2v-2h-.28l-.01-.53C16.76 19.66 20 16.43 20 12.5c0-2.92-1.19-5.55-3.44-7.06zM12 18c-2.21 0-4-1.79-4-4s1.79-4 4-4c.75 0 1.42.21 2 .59V9.28C13.47 9.1 12.75 9 12 9c-3.31 0-6 2.69-6 6s2.69 6 6 6c.75 0 1.47-.1 2.14-.28v-1.31c-.58.38-1.25.59-2 .59z"></path></svg>`;
 
     function log(message, type = "info") {
         const prefix = "[AutoCrystalScript]";
+
+        // Повідомлення про помилки ('error') будуть показуватися завжди
         if (type === "error") {
             console.error(prefix, message);
-            return;
+            return; // Виходимо, помилку вже залоговано
         }
+
+        // Для всіх інших типів ('info', 'warn', 'debug') логування залежить від CONFIG.DEBUG_LOGS
         if (CONFIG.DEBUG_LOGS) {
             switch (type) {
-                case "warn": console.warn(prefix, message); break;
-                case "debug": console.log(prefix, message); break;
-                case "info": default: console.log(prefix, message); break;
+                case "warn":
+                    console.warn(prefix, message);
+                    break;
+                case "debug":
+                    console.log(prefix, message); // Для debug можна використовувати console.log
+                    break;
+                case "info":
+                default: // Це спрацює для "info" та будь-яких інших типів, якщо вони будуть
+                    console.log(prefix, message);
+                    break;
             }
-        }
-    }
-
-    function helper_clearCardNotifications() {
-        if (!isScriptActive) return;
-        try {
-            const cardNotification = document.querySelector('.card-notification');
-
-            if (cardNotification && cardNotification.offsetParent !== null) {
-                log("Helper: Спроба закрити .card-notification", "debug");
-                cardNotification.click();
-            }
-        } catch (e) {
-            log("Helper: Помилка в helper_clearCardNotifications: " + e.message, "error");
-        }
-    }
-
-    async function helper_checkGiftCard() {
-        if (!isScriptActive) return;
-        const giftButton = document.querySelector('#gift-icon');
-        if (!giftButton) return;
-
-        const giftCode = giftButton.getAttribute('data-code');
-        if (!giftCode) {
-            log("Helper: Кнопка подарунка #gift-icon не має data-code.", "warn");
-            return;
-        }
-
-        const userHash = getDleLoginHash();
-        if (!userHash) return;
-
-        log(`Helper: Знайдено подарунковий код: ${giftCode}. Спроба активації...`, "info");
-        try {
-            const response = await fetch('/engine/ajax/controller.php?mod=gift_code_game', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({ code: giftCode, user_hash: userHash })
-            });
-            const data = await response.json();
-            if (data.status === 'ok') {
-                if (CONFIG.SHOW_GIFT_ACTIVATION_NOTIFICATIONS) { // ЗМІНА: Перевірка налаштування
-                    showNotification('🎁 Подарунок активовано!', data.text || 'Код успішно використано.');
-                }
-                log(`Helper: Подарунковий код ${giftCode} успішно активовано: ${data.text}`, "info");
-                giftButton.remove();
-            } else {
-                log(`Helper: Помилка активації подарункового коду ${giftCode}: ${data.text || 'Статус не "ok"'}`, "warn");
-            }
-        } catch (error) {
-            log(`Helper: Помилка AJAX в helper_checkGiftCard для коду ${giftCode}: ${error.message}`, "error");
-        }
-    }
-
-    function helper_muteAdsAudioClick() {
-        if (!isScriptActive) return;
-        try {
-            const adVolumeButton = document.querySelector('.adv_volume.volume_on');
-            if (adVolumeButton && adVolumeButton.offsetParent !== null) {
-                log("Helper: Вимкнення звуку реклами (.adv_volume.volume_on)", "debug");
-                adVolumeButton.click();
-            }
-        } catch (e) {
-            log("Helper: Помилка в helper_muteAdsAudioClick: " + e.message, "error");
-        }
-    }
-
-    async function runHelperPeriodicChecks() {
-        if (!isScriptActive) return;
-        helper_clearCardNotifications();
-        await helper_checkGiftCard();
-        helper_muteAdsAudioClick();
-    }
-
-    async function helper_startPing() {
-        if (!isScriptActive) return;
-        const userHash = getDleLoginHash();
-        if (!userHash) return;
-
-        try {
-            await sleep(SOURCE_SCRIPT_DELAY * 2);
-            if (typeof $ === 'undefined') {
-                log("jQuery не знайдено, helper_startPing не може виконати AJAX. Перевірте, чи jQuery завантажено на сторінці.", "error");
-                return;
-            }
-            await new Promise((resolve, reject) => {
-                $.ajax({
-                    url: "/engine/ajax/controller.php?mod=user_count_timer", type: "post",
-                    data: { user_hash: userHash }, dataType: "json", cache: false,
-                    success: (data) => { log("Helper: Пінг успішний.", "debug"); resolve(data); },
-                    error: (jqXHR, textStatus, errorThrown) => { log(`Helper: Помилка пінгу: ${textStatus}, ${errorThrown}`, "error"); reject(errorThrown); }
-                });
-            });
-        } catch (e) { log(`Helper: Виключення в helper_startPing: ${e.message}`, "debug"); }
-    }
-
-    async function helper_checkNewRewardCard() {
-        log("DEBUG: helper_checkNewRewardCard - ФУНКЦІЯ ВИКЛИКАНА", "debug");
-        if (!isScriptActive) {
-            log("DEBUG: helper_checkNewRewardCard - вихід, скрипт неактивний", "debug");
-            return;
-        }
-        let userHash = getDleLoginHash();
-        if (!userHash) {
-            log("DEBUG: helper_checkNewRewardCard - вихід, userHash не знайдено", "debug");
-            return;
-        }
-
-        const currentDateTime = new Date();
-        const localStorageKey = 'helper_checkCardStopped_' + userHash;
-        const currentHourMarker = currentDateTime.toISOString().slice(0, 13);
-
-        if (localStorage.getItem(localStorageKey) === currentHourMarker) {
-            log("DEBUG: helper_checkNewRewardCard - Перевірку нових нагородних карток призупинено на цю годину (localStorage).", "debug");
-            return;
-        }
-
-        try {
-            await sleep(SOURCE_SCRIPT_DELAY * 2);
-            if (typeof $ === 'undefined') {
-                log("jQuery не знайдено, helper_checkNewRewardCard не може виконати AJAX (check_reward).", "error");
-                return;
-            }
-            log("DEBUG: helper_checkNewRewardCard - Спроба AJAX запиту (check_reward)...", "debug");
-            const data = await new Promise((resolve, reject) => {
-                $.ajax({
-                    url: "/engine/ajax/controller.php?mod=reward_card", type: "post",
-                    data: { action: "check_reward", user_hash: userHash }, dataType: "json", cache: false,
-                    success: (responseData) => {
-                        log("DEBUG: helper_checkNewRewardCard - AJAX (check_reward) успіх. Відповідь: " + JSON.stringify(responseData), "debug");
-                        resolve(responseData);
-                    },
-                    error: (jqXHR, textStatus, errorThrown) => {
-                        log(`Helper: Помилка AJAX (check_reward): ${textStatus}, ${errorThrown}. Status: ${jqXHR.status}. ResponseText: ${jqXHR.responseText}`, "error");
-                        reject(errorThrown);
-                    }
-                });
-            });
-
-            if (data.stop_reward === "yes") {
-                localStorage.setItem(localStorageKey, currentHourMarker);
-                log("Helper: Сервер попросив зупинити перевірку нагородних карток на цю годину.", "info");
-                return;
-            }
-
-            if (data && data.cards && data.cards.owner_id) {
-                const ownerId = data.cards.owner_id;
-                const cardName = data.cards.name || "невідома";
-                log(`Helper: 🎉 Знайдено нову нагородну картку: "${cardName}" (owner_id: ${ownerId}). Спроба отримати...`, "info");
-               if (CONFIG.SHOW_REWARD_CARD_NOTIFICATIONS) {
-                   showNotification('💎 Нова картка!', `Знайдено картку: "${cardName}". Отримуємо...`);
-               }
-                await sleep(SOURCE_SCRIPT_DELAY);
-
-                if (typeof $ === 'undefined') {
-                    log("jQuery не знайдено, helper_checkNewRewardCard не може виконати AJAX (take_card).", "error");
-                    return;
-                }
-                log("DEBUG: helper_checkNewRewardCard - Спроба AJAX запиту (take_card)...", "debug");
-                await new Promise((resolve, reject) => {
-                    $.ajax({
-                        url: "/engine/ajax/controller.php?mod=cards_ajax",
-                        type: "post",
-                        data: { action: "take_card", owner_id: ownerId, user_hash: userHash },
-                        // dataType: "json", // ЗМІНА: Закоментовано для гнучкої обробки відповіді
-                        cache: false,
-                        success: (data_take, textStatus, jqXHR) => { // ЗМІНА: Додано textStatus та jqXHR
-                            log("DEBUG: helper_checkNewRewardCard - AJAX (take_card) успіх. Raw Response: " + jqXHR.responseText, "debug");
-
-                            // ЗМІНА: Гнучкий аналіз відповіді
-                            if (jqXHR.status === 200 && (jqXHR.responseText.trim() === "" || jqXHR.responseText.toLowerCase().includes("success") || jqXHR.responseText.toLowerCase().includes("ok") || jqXHR.responseText.includes(cardName))) {
-                                 log(`Helper: Картку "${cardName}" ймовірно успішно отримано (статус 200, відповідь: "${jqXHR.responseText.substring(0,100)}").`, "info");
-                                 if (CONFIG.SHOW_REWARD_CARD_NOTIFICATIONS) {
-                                     showNotification('✅ Картку отримано!', `Картка "${cardName}" тепер у вашій колекції.`);
-                                 }
-                            } else {
-                                try {
-                                    // Спроба розпарсити як JSON, якщо не порожня і не текстовий успіх
-                                    const jsonData = typeof data_take === 'string' && data_take.trim() !== "" ? JSON.parse(data_take) : data_take;
-                                    if (jsonData && (jsonData.status === 'success' || jsonData.text || jsonData.dle_notice)) {
-                                        log(`Helper: Картку "${cardName}" успішно отримано (JSON відповідь). Відповідь: ${JSON.stringify(jsonData)}`, "info");
-                                        showNotification('✅ Картку отримано!', `Картка "${cardName}" тепер у вашій колекції.`);
-                                    } else {
-                                        log(`Helper: Не вдалося отримати картку "${cardName}" (JSON відповідь не вказує на успіх або відповідь не JSON). Відповідь: ${JSON.stringify(jsonData)}, Raw: ${jqXHR.responseText.substring(0,100)}`, "warn");
-                                    }
-                                } catch (parseError) {
-                                     log(`Helper: Не вдалося отримати картку "${cardName}" (не вдалося розпарсити відповідь як JSON). Raw: ${jqXHR.responseText.substring(0,100)}`, "warn");
-                                }
-                            }
-                            resolve(data_take);
-                        },
-                        error: (jqXHR, textStatus, errorThrown) => {
-                            log(`Helper: Помилка AJAX (take_card) для "${cardName}": ${textStatus}, ${errorThrown}. Status: ${jqXHR.status}. ResponseText: ${jqXHR.responseText}`, "error");
-                            reject(errorThrown);
-                        }
-                    });
-                });
-            } else {
-                log("DEBUG: helper_checkNewRewardCard - Нових нагородних карток не знайдено (або відповідь не містить data.cards.owner_id).", "debug");
-            }
-        } catch (e) {
-            log(`Helper: Виключення в helper_checkNewRewardCard (можливо, parsererror з check_reward або інша помилка запиту): ${e.message || e}`, "error");
         }
     }
 
     function loadState() {
         log("DEBUG: loadState CALLED", "debug");
         const savedState = localStorage.getItem(CONFIG.SCRIPT_STATE_KEY);
+        log(`DEBUG: loadState - savedState for SCRIPT_STATE_KEY ('${CONFIG.SCRIPT_STATE_KEY}') from localStorage: ${savedState} (type: ${typeof savedState})`, "debug");
         try {
             if (savedState === null) {
+                log("DEBUG: loadState - No saved state found, defaulting isScriptActive to true.", "debug");
                 isScriptActive = true;
             } else {
+                log("DEBUG: loadState - Attempting to parse savedState: " + savedState, "debug");
                 isScriptActive = JSON.parse(savedState);
             }
+            log(`DEBUG: loadState - isScriptActive ASSIGNED: ${isScriptActive} (type: ${typeof isScriptActive})`, "debug");
         } catch (e) {
             log(`ERROR in loadState while parsing SCRIPT_STATE_KEY ('${savedState}'): ${e.message}`, "error");
+            log("DEBUG: loadState - Defaulting isScriptActive to true due to parse error.", "debug");
             isScriptActive = true;
         }
         try {
@@ -335,6 +114,7 @@
                 clickedCrystalTimestamps = new Set(toKeep);
                 saveClickedTimestamps();
             }
+            log(`Завантажено ${clickedCrystalTimestamps.size} міток часу натиснутих кристалів.`, "debug");
         } catch (e) {
             log("Помилка завантаження збережених міток часу: " + e.message, "error");
             clickedCrystalTimestamps = new Set();
@@ -347,6 +127,7 @@
     function saveClickedTimestamps() {
         try {
             localStorage.setItem(CONFIG.CLICKED_TIMESTAMPS_KEY, JSON.stringify([...clickedCrystalTimestamps]));
+            log(`Збережено ${clickedCrystalTimestamps.size} міток часу.`, "debug");
         } catch (e) {
             log("Помилка збереження міток часу: " + e.message, "error");
         }
@@ -360,9 +141,7 @@
     }
 
     function showNotification(title, body, icon = CONFIG.NOTIFICATION_ICON_URL) {
-        if (!isScriptActive && !title.includes('💎') && !title.includes('✅ Картку отримано!')) {
-             return;
-        }
+        if (!isScriptActive) return;
         const showActualNotification = () => {
             try {
                 const notification = new Notification(title, { body, icon, silent: true });
@@ -394,8 +173,11 @@
             log("Загальна помилка в showNotification: " + e.message, "error");
         }
     }
-    function sendTelegramNotificationViaWorker(messageText, eventId) {
+
+    // Оновлена функція
+    function sendTelegramNotificationViaWorker(messageText, eventId) { // <--- Додано eventId як параметр
         if (!CONFIG.ENABLE_TELEGRAM_NOTIFICATIONS || !CONFIG.WORKER_WEBHOOK_URL) {
+            log("Telegram сповіщення через Worker вимкнені або URL не вказано.", "debug");
             return;
         }
         log(`[TelegramWorker] Спроба надіслати сповіщення: "${messageText}" (Event ID: ${eventId})`, "info");
@@ -405,12 +187,12 @@
             data: JSON.stringify({
                 message: messageText,
                 parse_mode: "MarkdownV2",
-                event_id: eventId
+                event_id: eventId // <--- Додаємо event_id до JSON
             }),
             headers: { "Content-Type": "application/json" },
             onload: function(response) {
                 if (response.status >= 200 && response.status < 300) {
-                    log(`[TelegramWorker] Запит на Worker успішний (Event ID: ${eventId}): ${response.statusText}`, "info");
+                    log(`[TelegramWorker] Запит на Worker успішний (Event ID: ${eventId}): ${response.statusText} - ${response.responseText}`, "info");
                 } else {
                     log(`[TelegramWorker] Помилка запиту на Worker (Event ID: ${eventId}): ${response.status} ${response.statusText} - ${response.responseText}`, "error");
                 }
@@ -422,29 +204,53 @@
     }
 
     function processSingleMessage(msgElement) {
+        log(`DEBUG: processSingleMessage called for element: <${msgElement.tagName.toLowerCase()} class="${msgElement.className}">`, "debug");
+
         if (!isScriptActive || !msgElement || typeof msgElement.matches !== 'function' || !msgElement.matches(CONFIG.CHAT_MESSAGE_SELECTOR)) {
+            log(`DEBUG: processSingleMessage - exiting early. isScriptActive: ${isScriptActive}, msgElement valid: ${!!msgElement}, matches selector: ${msgElement && typeof msgElement.matches === 'function' ? msgElement.matches(CONFIG.CHAT_MESSAGE_SELECTOR) : 'N/A'}`, "debug");
             return;
         }
         try {
             const timeElement = msgElement.querySelector(CONFIG.TIME_SELECTOR);
             const timestamp = getTimestampString(timeElement);
-            if (!timestamp || clickedCrystalTimestamps.has(timestamp)) {
+            log(`DEBUG: processSingleMessage - timestamp extracted: ${timestamp}`, "debug");
+
+            if (!timestamp) {
+                log("DEBUG: processSingleMessage - no timestamp found, exiting.", "debug");
+                return;
+            }
+            if (clickedCrystalTimestamps.has(timestamp)) {
+                log(`DEBUG: processSingleMessage - timestamp ${timestamp} already clicked, exiting.`, "debug");
                 return;
             }
 
             const authorElement = msgElement.querySelector(CONFIG.CHAT_AUTHOR_SELECTOR);
             const authorText = authorElement ? authorElement.textContent.trim().toLowerCase() : null;
+            log(`DEBUG: processSingleMessage - authorText: "${authorText}" (expected: "${CONFIG.CRYSTAL_BOT_NAME_LC}")`, "debug");
+
+            let diamondElement = null;
 
             if (authorText === CONFIG.CRYSTAL_BOT_NAME_LC) {
-                log(`DEBUG: Potential crystal message from "${authorText}" at ${timestamp}. Checking for diamond...`, "debug");
-                let diamondElement = null;
-                diamondElement = msgElement.querySelector(CONFIG.DIAMOND_SELECTOR);
-                if (!diamondElement) diamondElement = msgElement.querySelector(".diamond-chat");
-                if (!diamondElement) diamondElement = msgElement.querySelector(".diamond");
-                if (!diamondElement) diamondElement = msgElement.querySelector("div[data-code]");
+                log(`DEBUG: Potential crystal message from "${authorText}". Checking for diamond...`, "debug");
+
+                diamondElement = msgElement.querySelector(CONFIG.DIAMOND_SELECTOR); // Спроба 1: За ID (поточний CONFIG.DIAMOND_SELECTOR)
+                log(`DEBUG: Diamond search by ID ('${CONFIG.DIAMOND_SELECTOR}') inside msgElement found: ${diamondElement ? diamondElement.outerHTML.substring(0,70)+"..." : 'null'}`, "debug");
+
+                if (!diamondElement) {
+                    diamondElement = msgElement.querySelector(".diamond-chat"); // Спроба 2: За класом "diamond-chat"
+                    log(`DEBUG: Diamond search by class ('.diamond-chat') inside msgElement found: ${diamondElement ? diamondElement.outerHTML.substring(0,70)+"..." : 'null'}`, "debug");
+                }
+                if (!diamondElement) {
+                    diamondElement = msgElement.querySelector(".diamond"); // Спроба 3: За класом "diamond"
+                    log(`DEBUG: Diamond search by class ('.diamond') inside msgElement found: ${diamondElement ? diamondElement.outerHTML.substring(0,70)+"..." : 'null'}`, "debug");
+                }
+                if (!diamondElement) {
+                    diamondElement = msgElement.querySelector("div[data-code]"); // Спроба 4: За атрибутом data-code
+                    log(`DEBUG: Diamond search by attribute ('div[data-code]') inside msgElement found: ${diamondElement ? diamondElement.outerHTML.substring(0,70)+"..." : 'null'}`, "debug");
+                }
 
                 if (diamondElement) {
-                    log(`[Observer] 💎 Знайдено кристал від '${CONFIG.CRYSTAL_BOT_NAME_LC}' (${timestamp}), клікаємо!`, "info");
+                    log(`[Observer] 💎 Знайдено кристал від '${CONFIG.CRYSTAL_BOT_NAME_LC}' (${timestamp}) з елементом: ${diamondElement.outerHTML.substring(0,100)}, клікаємо!`, "info");
                     diamondElement.click();
                     crystalCount++;
                     lastCrystalTimestamp = timestamp;
@@ -460,12 +266,16 @@
                     const browserNotificationBody = `Количество за сессию: ${crystalCount} (в ${timestamp})`;
                     showNotification(browserNotificationTitle, browserNotificationBody);
 
-                    const telegramMessageText = `💎 *Опа, камень в чате* ${timestamp}`;
-                    const eventId = `crystal_${timestamp.replace(":", "")}`;
-                    sendTelegramNotificationViaWorker(telegramMessageText, eventId);
+                    const crystalEmoji = "💎";
+                    const telegramMessageText = `${crystalEmoji} *Опа, камень в чате* ${timestamp}`;
+                    const eventId = `crystal_${timestamp.replace(":", "")}`; // Створюємо простий ID, замінюючи ":"
+                    sendTelegramNotificationViaWorker(telegramMessageText, eventId); // <--- Оновлений виклик, додаємо eventId
+                    log("DEBUG: processSingleMessage - Crystal processed and notifications sent.", "debug");
                 } else {
-                    log(`DEBUG: processSingleMessage - Diamond element NOT FOUND for crystal bot message at ${timestamp}. msgElement innerHTML (first 300 chars): ${msgElement.innerHTML.substring(0,300)}`, "debug");
+                    log(`DEBUG: processSingleMessage - CRITICAL: Diamond element NOT FOUND for crystal bot message. msgElement innerHTML (first 500 chars): ${msgElement.innerHTML.substring(0,500)}`, "warn");
                 }
+            } else {
+                log("DEBUG: processSingleMessage - Not a crystal bot message.", "debug");
             }
         } catch (error) {
             log(`Помилка в processSingleMessage: ${error.message}`, "error");
@@ -473,18 +283,375 @@
         }
     }
 
-    function scanExistingMessagesForCrystals() { if (!isScriptActive) return; log("🔍 Початкове сканування існуючих повідомлень...", "debug"); try { document.querySelectorAll(CONFIG.CHAT_MESSAGE_SELECTOR).forEach(msg => processSingleMessage(msg)); } catch (error) { log("Помилка під час початкового сканування: " + error.message, "error"); } log("✅ Початкове сканування завершено.", "debug"); }
-    function setupCrystalObserver() {  if (!isScriptActive || crystalObserver) return; const targetNode = document.querySelector(CONFIG.CHAT_MESSAGE_LIST_SELECTOR); if (!targetNode) { log(`Не знайдено контейнер чату ('${CONFIG.CHAT_MESSAGE_LIST_SELECTOR}') для MutationObserver кристалів.`, "error"); return; } const callback = function(mutationsList, observer) { if (!isScriptActive) return; for(const mutation of mutationsList) { if (mutation.type === 'childList') { mutation.addedNodes.forEach(node => { if (node.nodeType === 1) { if (node.matches(CONFIG.CHAT_MESSAGE_SELECTOR)) { processSingleMessage(node); } else if (node.querySelectorAll) { node.querySelectorAll(CONFIG.CHAT_MESSAGE_SELECTOR).forEach(msg => processSingleMessage(msg)); } } }); } } }; crystalObserver = new MutationObserver(callback); try { crystalObserver.observe(targetNode, { childList: true }); log(`👀 MutationObserver кристалів запущено для '${CONFIG.CHAT_MESSAGE_LIST_SELECTOR}'.`, "info"); } catch (error) { log(`Помилка запуску MutationObserver кристалів: ${error.message}`, "error"); crystalObserver = null; } }
-    function simulateMouseActivityInChat() { if (!isScriptActive) return; try { const chatArea = document.querySelector(CONFIG.CHAT_ACTIVITY_AREA_SELECTOR); if (!chatArea) { return; } const rect = chatArea.getBoundingClientRect(); if (rect.width === 0 || rect.height === 0) { return; } const clientX = rect.left + Math.random() * rect.width; const clientY = rect.top + Math.random() * rect.height; const mouseMoveEvent = new MouseEvent('mousemove', { bubbles: true, cancelable: true, view: unsafeWindow, clientX: clientX, clientY: clientY }); chatArea.dispatchEvent(mouseMoveEvent); log(`💨 Симульовано рух миші над '${CONFIG.CHAT_ACTIVITY_AREA_SELECTOR}'`, "debug"); } catch (error) { log(`Помилка в simulateMouseActivityInChat: ${error.message}`, "error"); } }
-    function closePopups() { if (!isScriptActive) return; try { for (const selector of CONFIG.POPUP_CLOSE_SELECTORS) { const popupCloseButton = document.querySelector(selector); if (popupCloseButton && popupCloseButton.offsetParent !== null) { log(`❌ Знайдено спливаюче вікно/повідомлення (за селектором '${selector}'), закриваємо!`, "debug"); popupCloseButton.click(); } } } catch (error) { log("Помилка в closePopups: " + error.message, "error"); } }
-    function createCrystalInfoPanel() { if (document.getElementById(CONFIG.INFO_PANEL_ID)) return; const chatListElement = document.querySelector(CONFIG.CHAT_MESSAGE_LIST_SELECTOR); if (!chatListElement) { removeCrystalInfoPanel(); return; } infoPanelElement = document.createElement('div'); infoPanelElement.id = CONFIG.INFO_PANEL_ID; infoPanelElement.innerHTML = ` <span style="opacity: 0.8;">💎 Собрано:</span> <strong id="crystal-count-display" style="margin-left: 5px;">0</strong> <br> <span style="opacity: 0.8; font-size: 11px;">Последний:</span> <span id="last-crystal-time-display" style="margin-left: 5px; font-size: 11px;">N/A</span> `; Object.assign(infoPanelElement.style, { position: 'fixed', bottom: '15px', left: '15px', backgroundColor: 'rgba(0, 0, 0, 0.75)', color: '#f0f0f0', padding: '8px 12px', borderRadius: '8px', fontFamily: '"Segoe UI", Roboto, sans-serif', fontSize: '13px', lineHeight: '1.4', zIndex: '10001', boxShadow: '0 2px 5px rgba(0,0,0,0.3)', border: '1px solid rgba(255, 255, 255, 0.1)', opacity: '0.9', transition: 'opacity 0.3s', display: 'block' }); document.body.appendChild(infoPanelElement); updateCrystalInfoPanel(); }
-    function updateCrystalInfoPanel() { if (!infoPanelElement) infoPanelElement = document.getElementById(CONFIG.INFO_PANEL_ID); if (infoPanelElement) { const countDisplay = infoPanelElement.querySelector('#crystal-count-display'); const timeDisplay = infoPanelElement.querySelector('#last-crystal-time-display'); if (countDisplay) countDisplay.textContent = crystalCount; if (timeDisplay) timeDisplay.textContent = lastCrystalTimestamp; } }
-    function removeCrystalInfoPanel() {  const panel = document.getElementById(CONFIG.INFO_PANEL_ID); if (panel) { panel.remove(); } infoPanelElement = null; }
-    function createControlButton() { let existingButton = document.getElementById(CONFIG.CONTROL_BUTTON_ID); if (existingButton) { controlButton = existingButton; } else { controlButton = document.createElement('button'); controlButton.id = CONFIG.CONTROL_BUTTON_ID; } Object.assign(controlButton.style, { padding: '6px 12px', fontSize: '13px', color: 'white', fontFamily: '"Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', fontWeight: '500', border: 'none', borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.2)', transition: 'background 0.2s ease, opacity 0.2s ease', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', minWidth: 'auto' }); const lcButtonsContainer = document.querySelector('.lc_buttons'); const chatOverallContainer = document.querySelector(CONFIG.CHAT_MESSAGE_LIST_SELECTOR); if (lcButtonsContainer && chatOverallContainer) { controlButton.style.position = ''; controlButton.style.top = ''; controlButton.style.right = ''; controlButton.style.zIndex = ''; controlButton.style.marginLeft = '8px'; controlButton.style.marginRight = '8px'; let alreadyInPlace = false; if (existingButton && existingButton.parentElement === lcButtonsContainer) { alreadyInPlace = true; } if (!alreadyInPlace) { if(controlButton.parentElement) controlButton.parentElement.removeChild(controlButton); const symbolsSpan = lcButtonsContainer.querySelector('.lc_symb_left'); if (symbolsSpan) { lcButtonsContainer.insertBefore(controlButton, symbolsSpan); } else { const sendLink = lcButtonsContainer.querySelector('.lc_add'); if (sendLink && sendLink.nextSibling) { lcButtonsContainer.insertBefore(controlButton, sendLink.nextSibling); } else if (sendLink) { lcButtonsContainer.appendChild(controlButton); } else { lcButtonsContainer.appendChild(controlButton); } } } } else { controlButton.style.position = 'fixed'; controlButton.style.top = '120px'; controlButton.style.right = '15px'; controlButton.style.zIndex = '10002'; controlButton.style.minWidth = '160px'; controlButton.style.padding = '10px 18px'; controlButton.style.fontSize = '15px'; controlButton.style.borderRadius = '50px'; if (!chatOverallContainer) { controlButton.style.display = 'none'; } else { controlButton.style.display = 'flex'; } if (controlButton.parentElement !== document.body && controlButton.parentElement !== lcButtonsContainer ) { if(controlButton.parentElement) controlButton.parentElement.removeChild(controlButton); document.body.appendChild(controlButton); } else if (!controlButton.parentElement) { document.body.appendChild(controlButton); } } updateButtonAppearance(); if (!controlButton.dataset.listenerAttached) { controlButton.addEventListener('click', () => { if (controlButton.disabled) return; controlButton.disabled = true; if (isScriptActive) { deactivateFeatures(); } else { activateFeatures(); } }); controlButton.addEventListener('mouseenter', () => { if (!controlButton.disabled && controlButton.style.display !== 'none') { controlButton.style.opacity = '0.85'; } }); controlButton.addEventListener('mouseleave', () => { if (!controlButton.disabled && controlButton.style.display !== 'none') { controlButton.style.opacity = '1'; } }); controlButton.addEventListener('mousedown', () => { if (!controlButton.disabled && controlButton.style.display !== 'none') { controlButton.style.opacity = '0.7'; } }); controlButton.addEventListener('mouseup', () => { if (!controlButton.disabled && controlButton.style.display !== 'none') { controlButton.style.opacity = controlButton.matches(':hover') ? '0.85' : '1'; } }); controlButton.dataset.listenerAttached = 'true'; } }
-    function updateButtonAppearance() { if (!controlButton) { return; } if (controlButtonPulseIntervalId) { clearInterval(controlButtonPulseIntervalId); controlButtonPulseIntervalId = null; } if (isScriptActive) { controlButton.innerHTML = `${powerOnIconSVG} Авто: ON`; controlButton.style.background = 'linear-gradient(135deg, #28a745 0%, #218838 100%)'; if (controlButton.style.position === 'fixed') { controlButton.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)'; let pulseOut = true; controlButtonPulseIntervalId = setInterval(() => { if (!isScriptActive || !controlButton || controlButton.style.display === 'none') { if (controlButtonPulseIntervalId) clearInterval(controlButtonPulseIntervalId); controlButtonPulseIntervalId = null; if (controlButton) controlButton.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)'; return; } controlButton.style.boxShadow = pulseOut ? '0 6px 14px rgba(33, 136, 56, 0.5), 0 0 0 2px rgba(40, 167, 69, 0.3)' : '0 4px 8px rgba(0, 0, 0, 0.2)'; pulseOut = !pulseOut; }, 800); } else { controlButton.style.boxShadow = '0 1px 3px rgba(0,0,0,0.15)'; } } else { controlButton.innerHTML = `${powerOffIconSVG} Авто: OFF`; controlButton.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)'; if (controlButton.style.position === 'fixed') { controlButton.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)'; } else { controlButton.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; } } }
-    function tryCloseCardPopup() { if (!isScriptActive) return; const closeButton = document.querySelector(CONFIG.CARD_POPUP_CLOSE_BUTTON_SELECTOR); if (closeButton && closeButton.offsetParent !== null) { log(`[CardFeature] Знайдено кнопку закриття попапу карти ('${CONFIG.CARD_POPUP_CLOSE_BUTTON_SELECTOR}'), клікаємо.`, "debug"); try { closeButton.click(); } catch (e) { log(`[CardFeature] Помилка при кліку на кнопку закриття попапу: ${e.message}`, "error"); } } }
-    function handleCardElementAppearance(cardElementNode) { if (!isScriptActive) return; log(`[CardFeature] Знайдено елемент карти ('${CONFIG.CARD_ELEMENT_SELECTOR}'), клікаємо!`, "info"); try { cardElementNode.click(); setTimeout(tryCloseCardPopup, CONFIG.CARD_POPUP_CLOSE_DELAY_MS); } catch (e) { log(`[CardFeature] Помилка при кліку на елемент карти: ${e.message}`, "error"); } }
-    function setupCardFeatureObserver() { if (!isScriptActive || cardFeatureObserver) { if (cardFeatureObserver && !isScriptActive) { cardFeatureObserver.disconnect(); cardFeatureObserver = null; } return; } const targetNodeForCards = document.body; if (!targetNodeForCards) { return; } const observerOptions = { childList: true, subtree: true }; const callback = function(mutationsList, observer) { if (!isScriptActive) return; for (const mutation of mutationsList) { if (mutation.type === 'childList') { mutation.addedNodes.forEach(node => { if (node.nodeType === 1) { if (typeof node.matches === 'function' && node.matches(CONFIG.CARD_ELEMENT_SELECTOR)) { handleCardElementAppearance(node); } else if (typeof node.querySelectorAll === 'function') { const cardElement = node.querySelector(CONFIG.CARD_ELEMENT_SELECTOR); if (cardElement) { handleCardElementAppearance(cardElement); } } } }); } } }; try { cardFeatureObserver = new MutationObserver(callback); cardFeatureObserver.observe(targetNodeForCards, observerOptions); log(`[CardFeature] Спостерігач за появою карт запущено.`, "info"); } catch (e) { log(`ERROR defining or starting CardFeatureObserver: ${e.message}`, "error"); cardFeatureObserver = null; } }
+    function scanExistingMessagesForCrystals() {
+        if (!isScriptActive) return;
+        log("🔍 Початкове сканування існуючих повідомлень...", "debug");
+        try {
+            document.querySelectorAll(CONFIG.CHAT_MESSAGE_SELECTOR).forEach(msg => processSingleMessage(msg));
+        } catch (error) {
+            log("Помилка під час початкового сканування: " + error.message, "error");
+        }
+        log("✅ Початкове сканування завершено.", "debug");
+    }
+
+    function setupCrystalObserver() {
+        if (!isScriptActive || crystalObserver) return;
+        const targetNode = document.querySelector(CONFIG.CHAT_MESSAGE_LIST_SELECTOR);
+        if (!targetNode) {
+            log(`Не знайдено контейнер чату ('${CONFIG.CHAT_MESSAGE_LIST_SELECTOR}') для MutationObserver кристалів.`, "error");
+            return;
+        }
+        const callback = function(mutationsList, observer) {
+            if (!isScriptActive) return;
+            for(const mutation of mutationsList) {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeType === 1) {
+                            if (node.matches(CONFIG.CHAT_MESSAGE_SELECTOR)) {
+                                processSingleMessage(node);
+                            } else if (node.querySelectorAll) {
+                                node.querySelectorAll(CONFIG.CHAT_MESSAGE_SELECTOR).forEach(msg => processSingleMessage(msg));
+                            }
+                        }
+                    });
+                }
+            }
+        };
+        crystalObserver = new MutationObserver(callback);
+        try {
+            crystalObserver.observe(targetNode, { childList: true });
+            log(`👀 MutationObserver кристалів запущено для '${CONFIG.CHAT_MESSAGE_LIST_SELECTOR}'.`, "info");
+        } catch (error) {
+            log(`Помилка запуску MutationObserver кристалів: ${error.message}`, "error");
+            crystalObserver = null;
+        }
+    }
+
+    function simulateMouseActivityInChat() {
+        if (!isScriptActive) return;
+        try {
+            const chatArea = document.querySelector(CONFIG.CHAT_ACTIVITY_AREA_SELECTOR);
+            if (!chatArea) {
+                log("DEBUG: simulateMouseActivityInChat - chatArea not found.", "debug");
+                return;
+            }
+            const rect = chatArea.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) {
+                log("DEBUG: simulateMouseActivityInChat - chatArea has zero dimensions.", "debug");
+                return;
+            }
+            const clientX = rect.left + Math.random() * rect.width;
+            const clientY = rect.top + Math.random() * rect.height;
+            const mouseMoveEvent = new MouseEvent('mousemove', {
+                bubbles: true, cancelable: true, view: unsafeWindow,
+                clientX: clientX, clientY: clientY
+            });
+            chatArea.dispatchEvent(mouseMoveEvent);
+            log(`💨 Симульовано рух миші над '${CONFIG.CHAT_ACTIVITY_AREA_SELECTOR}'`, "debug");
+        } catch (error) {
+            log(`Помилка в simulateMouseActivityInChat: ${error.message}`, "error");
+        }
+    }
+
+    function closePopups() {
+        if (!isScriptActive) return;
+        try {
+            for (const selector of CONFIG.POPUP_CLOSE_SELECTORS) {
+                const popupCloseButton = document.querySelector(selector);
+                if (popupCloseButton && popupCloseButton.offsetParent !== null) {
+                    log(`❌ Знайдено спливаюче вікно/повідомлення (за селектором '${selector}'), закриваємо!`, "debug");
+                    popupCloseButton.click();
+                }
+            }
+        } catch (error) {
+            log("Помилка в closePopups: " + error.message, "error");
+        }
+    }
+
+    function createCrystalInfoPanel() {
+        if (document.getElementById(CONFIG.INFO_PANEL_ID)) return;
+        const chatListElement = document.querySelector(CONFIG.CHAT_MESSAGE_LIST_SELECTOR);
+        if (!chatListElement) {
+            log(`Інфо-панель не буде створено, оскільки чат ('${CONFIG.CHAT_MESSAGE_LIST_SELECTOR}') не знайдено.`, "info");
+            removeCrystalInfoPanel();
+            return;
+        }
+        infoPanelElement = document.createElement('div');
+        infoPanelElement.id = CONFIG.INFO_PANEL_ID;
+        infoPanelElement.innerHTML = `
+            <span style="opacity: 0.8;">💎 Собрано:</span>
+            <strong id="crystal-count-display" style="margin-left: 5px;">0</strong>
+            <br>
+            <span style="opacity: 0.8; font-size: 11px;">Последний:</span>
+            <span id="last-crystal-time-display" style="margin-left: 5px; font-size: 11px;">N/A</span>
+        `;
+        Object.assign(infoPanelElement.style, {
+            position: 'fixed', bottom: '15px', left: '15px',
+            backgroundColor: 'rgba(0, 0, 0, 0.75)', color: '#f0f0f0',
+            padding: '8px 12px', borderRadius: '8px',
+            fontFamily: '"Segoe UI", Roboto, sans-serif', fontSize: '13px',
+            lineHeight: '1.4', zIndex: '10001',
+            boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.1)', opacity: '0.9',
+            transition: 'opacity 0.3s', display: 'block'
+        });
+        document.body.appendChild(infoPanelElement);
+        log(`Інфо-панель створено (чат '${CONFIG.CHAT_MESSAGE_LIST_SELECTOR}' знайдено).`, "info");
+        updateCrystalInfoPanel();
+    }
+
+    function updateCrystalInfoPanel() {
+        if (!infoPanelElement) infoPanelElement = document.getElementById(CONFIG.INFO_PANEL_ID);
+        if (infoPanelElement) {
+            const countDisplay = infoPanelElement.querySelector('#crystal-count-display');
+            const timeDisplay = infoPanelElement.querySelector('#last-crystal-time-display');
+            if (countDisplay) countDisplay.textContent = crystalCount;
+            if (timeDisplay) timeDisplay.textContent = lastCrystalTimestamp;
+        }
+    }
+
+    function removeCrystalInfoPanel() {
+        const panel = document.getElementById(CONFIG.INFO_PANEL_ID);
+        if (panel) {
+            panel.remove();
+            log("Інфо-панель видалено.", "info");
+        }
+        infoPanelElement = null;
+    }
+
+    function createControlButton() {
+        log("DEBUG: createControlButton called", "debug");
+        let existingButton = document.getElementById(CONFIG.CONTROL_BUTTON_ID);
+        if (existingButton) {
+            controlButton = existingButton;
+            log("DEBUG: createControlButton - existing button found", "debug");
+        } else {
+            controlButton = document.createElement('button');
+            controlButton.id = CONFIG.CONTROL_BUTTON_ID;
+            log("DEBUG: createControlButton - new button created", "debug");
+        }
+
+        Object.assign(controlButton.style, {
+            padding: '6px 12px', fontSize: '13px', color: 'white',
+            fontFamily: '"Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            fontWeight: '500', border: 'none', borderRadius: '6px', cursor: 'pointer',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            transition: 'background 0.2s ease, opacity 0.2s ease',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            verticalAlign: 'middle', minWidth: 'auto'
+        });
+
+        const lcButtonsContainer = document.querySelector('.lc_buttons');
+        const chatOverallContainer = document.querySelector(CONFIG.CHAT_MESSAGE_LIST_SELECTOR);
+        log(`DEBUG: createControlButton - lcButtonsContainer: ${lcButtonsContainer}`, "debug");
+        log(`DEBUG: createControlButton - chatOverallContainer: ${chatOverallContainer}`, "debug");
+
+        if (lcButtonsContainer && chatOverallContainer) {
+            log("DEBUG: createControlButton - EMBEDDING button branch", "debug");
+            controlButton.style.position = ''; controlButton.style.top = ''; controlButton.style.right = ''; controlButton.style.zIndex = '';
+            controlButton.style.marginLeft = '8px'; controlButton.style.marginRight = '8px';
+
+            let alreadyInPlace = false;
+            if (existingButton && existingButton.parentElement === lcButtonsContainer) {
+                 alreadyInPlace = true;
+                 log("DEBUG: createControlButton - Existing button already in .lc_buttons", "debug");
+            }
+
+            if (!alreadyInPlace) {
+                if(controlButton.parentElement) controlButton.parentElement.removeChild(controlButton);
+                const symbolsSpan = lcButtonsContainer.querySelector('.lc_symb_left');
+                if (symbolsSpan) {
+                    lcButtonsContainer.insertBefore(controlButton, symbolsSpan);
+                    log("DEBUG: createControlButton - Inserted before .lc_symb_left", "debug");
+                } else {
+                    const sendLink = lcButtonsContainer.querySelector('.lc_add');
+                    if (sendLink && sendLink.nextSibling) {
+                        lcButtonsContainer.insertBefore(controlButton, sendLink.nextSibling);
+                        log("DEBUG: createControlButton - Inserted after .lc_add (before its nextSibling)", "debug");
+                    } else if (sendLink) {
+                        lcButtonsContainer.appendChild(controlButton);
+                        log("DEBUG: createControlButton - Appended after .lc_add (as last child)", "debug");
+                    } else {
+                        lcButtonsContainer.appendChild(controlButton);
+                        log("DEBUG: createControlButton - Appended to .lc_buttons (no .lc_add or .lc_symb_left found)", "debug");
+                    }
+                }
+            }
+        } else {
+            log("DEBUG: createControlButton - FALLBACK (fixed/hidden) button branch", "debug");
+            controlButton.style.position = 'fixed'; controlButton.style.top = '120px'; controlButton.style.right = '15px';
+            controlButton.style.zIndex = '10002'; controlButton.style.minWidth = '160px';
+            controlButton.style.padding = '10px 18px'; controlButton.style.fontSize = '15px'; controlButton.style.borderRadius = '50px';
+
+            if (!chatOverallContainer) {
+                controlButton.style.display = 'none';
+                log("DEBUG: createControlButton - HIDING button (no chatOverallContainer for fixed button)", "debug");
+            } else {
+                controlButton.style.display = 'flex';
+                log("DEBUG: createControlButton - SHOWING fixed button (chatOverallContainer present, but no .lc_buttons)", "debug");
+            }
+            if (controlButton.parentElement !== document.body) {
+                 if(controlButton.parentElement) controlButton.parentElement.removeChild(controlButton);
+                 document.body.appendChild(controlButton);
+                 log("DEBUG: createControlButton - Appended to document.body (fixed positioning)", "debug");
+            } else if (!controlButton.parentElement) {
+                 document.body.appendChild(controlButton);
+                 log("DEBUG: createControlButton - NEW button appended to document.body (fixed positioning)", "debug");
+            }
+        }
+
+        if (controlButton) {
+             log(`DEBUG: createControlButton - final parent: ${controlButton.parentElement ? controlButton.parentElement.outerHTML.substring(0,100) + "..." : "null"}`, "debug");
+             log(`DEBUG: createControlButton - final display style: ${controlButton.style.display}`, "debug");
+             log(`DEBUG: createControlButton - final visibility: ${controlButton.style.visibility}, opacity: ${controlButton.style.opacity}`, "debug");
+        } else {
+             log("DEBUG: createControlButton - controlButton is NULL at the end (THIS SHOULD NOT HAPPEN)", "error");
+        }
+        updateButtonAppearance();
+
+        if (!controlButton.dataset.listenerAttached) {
+            controlButton.addEventListener('click', () => {
+                if (controlButton.disabled) return;
+                controlButton.disabled = true;
+                if (isScriptActive) { deactivateFeatures(); } else { activateFeatures(); }
+            });
+            controlButton.addEventListener('mouseenter', () => { if (!controlButton.disabled && controlButton.style.display !== 'none') { controlButton.style.opacity = '0.85'; } });
+            controlButton.addEventListener('mouseleave', () => { if (!controlButton.disabled && controlButton.style.display !== 'none') { controlButton.style.opacity = '1'; } });
+            controlButton.addEventListener('mousedown', () => { if (!controlButton.disabled && controlButton.style.display !== 'none') { controlButton.style.opacity = '0.7'; } });
+            controlButton.addEventListener('mouseup', () => { if (!controlButton.disabled && controlButton.style.display !== 'none') { controlButton.style.opacity = controlButton.matches(':hover') ? '0.85' : '1'; } });
+            controlButton.dataset.listenerAttached = 'true';
+        }
+    }
+
+    function updateButtonAppearance() {
+        log(`DEBUG: updateButtonAppearance called. isScriptActive: ${isScriptActive}`, "debug");
+        if (!controlButton) {
+            log("DEBUG: updateButtonAppearance - EXITING, controlButton is null.", "debug");
+            return;
+        }
+
+        if (controlButtonPulseIntervalId) {
+            clearInterval(controlButtonPulseIntervalId);
+            controlButtonPulseIntervalId = null;
+        }
+
+        if (isScriptActive) {
+            log("DEBUG: updateButtonAppearance - Script is ACTIVE. Setting ON appearance.", "debug");
+            controlButton.innerHTML = `${powerOnIconSVG} Авто: ON`;
+            controlButton.style.background = 'linear-gradient(135deg, #28a745 0%, #218838 100%)'; // TODO: Site colors
+
+            if (controlButton.style.position === 'fixed') {
+                controlButton.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+                let pulseOut = true;
+                controlButtonPulseIntervalId = setInterval(() => {
+                    if (!isScriptActive || !controlButton || controlButton.style.display === 'none') {
+                        if (controlButtonPulseIntervalId) clearInterval(controlButtonPulseIntervalId);
+                        controlButtonPulseIntervalId = null;
+                        if (controlButton) controlButton.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+                        return;
+                    }
+                    controlButton.style.boxShadow = pulseOut
+                        ? '0 6px 14px rgba(33, 136, 56, 0.5), 0 0 0 2px rgba(40, 167, 69, 0.3)'
+                        : '0 4px 8px rgba(0, 0, 0, 0.2)';
+                    pulseOut = !pulseOut;
+                }, 800);
+            } else {
+                 controlButton.style.boxShadow = '0 1px 3px rgba(0,0,0,0.15)';
+            }
+        } else {
+            log("DEBUG: updateButtonAppearance - Script is INACTIVE. Setting OFF appearance.", "debug");
+            controlButton.innerHTML = `${powerOffIconSVG} Авто: OFF`;
+            controlButton.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)'; // TODO: Site colors
+
+            if (controlButton.style.position === 'fixed') {
+                 controlButton.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+            } else {
+                 controlButton.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+            }
+        }
+        log(`DEBUG: updateButtonAppearance - final button background: ${controlButton.style.background}`, "debug");
+        if(controlButton.innerHTML) {
+             log(`DEBUG: updateButtonAppearance - final button innerHTML length: ${controlButton.innerHTML.length}`, "debug");
+        } else {
+            log("DEBUG: updateButtonAppearance - final button innerHTML is empty or null", "debug");
+        }
+    }
+
+    function tryCloseCardPopup() {
+        if (!isScriptActive) return;
+        const closeButton = document.querySelector(CONFIG.CARD_POPUP_CLOSE_BUTTON_SELECTOR);
+        if (closeButton && closeButton.offsetParent !== null) {
+            log(`[CardFeature] Знайдено кнопку закриття попапу карти ('${CONFIG.CARD_POPUP_CLOSE_BUTTON_SELECTOR}'), клікаємо.`, "info");
+            try {
+                closeButton.click();
+                log(`[CardFeature] Кнопку закриття попапу карти натиснуто.`, "info");
+            } catch (e) {
+                log(`[CardFeature] Помилка при кліку на кнопку закриття попапу: ${e.message}`, "error");
+            }
+        } else {
+            log(`[CardFeature] Кнопку закриття попапу карти ('${CONFIG.CARD_POPUP_CLOSE_BUTTON_SELECTOR}') не знайдено або вона невидима.`, "warn");
+        }
+    }
+
+    function handleCardElementAppearance(cardElementNode) {
+        if (!isScriptActive) return;
+        log(`[CardFeature] Знайдено елемент карти ('${CONFIG.CARD_ELEMENT_SELECTOR}'), клікаємо!`, "info");
+        try {
+            cardElementNode.click();
+            log(`[CardFeature] Елемент карти натиснуто. Очікуємо ${CONFIG.CARD_POPUP_CLOSE_DELAY_MS / 1000} сек перед закриттям попапу.`, "info");
+            setTimeout(tryCloseCardPopup, CONFIG.CARD_POPUP_CLOSE_DELAY_MS);
+        } catch (e) {
+            log(`[CardFeature] Помилка при кліку на елемент карти: ${e.message}`, "error");
+        }
+    }
+
+    function setupCardFeatureObserver() {
+        if (!isScriptActive || cardFeatureObserver) {
+            if (cardFeatureObserver && !isScriptActive) {
+                 cardFeatureObserver.disconnect();
+                 cardFeatureObserver = null;
+                 log("[CardFeature] Спостерігач за картами зупинено через деактивацію скрипта.", "info");
+            }
+            return;
+        }
+        const targetNodeForCards = document.body;
+        if (!targetNodeForCards) {
+            log(`[CardFeature] Не знайдено цільовий вузол для спостерігача за картами (document.body).`, "error");
+            return;
+        }
+        const observerOptions = { childList: true, subtree: true };
+        const callback = function(mutationsList, observer) {
+            if (!isScriptActive) return;
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeType === 1) {
+                            // Закоментовано для зменшення кількості логів:
+                            // log(`DEBUG: [CardFeatureObserver] Node added: <${node.tagName.toLowerCase()}${(node.id ? ` id="${node.id}"` : '')}${(node.className ? ` class="${node.className}"` : '')}>`, "debug");
+                            if (typeof node.matches === 'function' && node.matches(CONFIG.CARD_ELEMENT_SELECTOR)) {
+                                log("DEBUG: [CardFeatureObserver] Direct match on added node for CARD!", "debug");
+                                handleCardElementAppearance(node);
+                            } else if (typeof node.querySelectorAll === 'function') {
+                                const cardElement = node.querySelector(CONFIG.CARD_ELEMENT_SELECTOR);
+                                if (cardElement) {
+                                    log("DEBUG: [CardFeatureObserver] Found CARD element via querySelector on added node.", "debug");
+                                    handleCardElementAppearance(cardElement);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        };
+        try {
+            cardFeatureObserver = new MutationObserver(callback);
+            cardFeatureObserver.observe(targetNodeForCards, observerOptions);
+            log(`[CardFeature] Спостерігач за появою карт запущено (ціль: body, селектор: '${CONFIG.CARD_ELEMENT_SELECTOR}').`, "info");
+        } catch (e) {
+            log(`ERROR defining or starting CardFeatureObserver: ${e.message}`, "error");
+            cardFeatureObserver = null;
+        }
+    }
 
     function activateFeatures() {
         log("DEBUG: activateFeatures CALLED", "debug");
@@ -492,6 +659,7 @@
         if (!chatListElement) {
             log("Функції, залежні від чату (CrystalObserver, InfoPanel), не активовано, оскільки чат не знайдено.", "warn");
         } else {
+            log("Чат знайдено, активуємо функції, що від нього залежать (CrystalObserver, InfoPanel).", "info");
             createCrystalInfoPanel();
             scanExistingMessagesForCrystals();
             setupCrystalObserver();
@@ -507,29 +675,6 @@
         if (!afkMouseSimIntervalId) afkMouseSimIntervalId = setInterval(simulateMouseActivityInChat, CONFIG.AFK_MOUSE_SIM_INTERVAL_MS);
         if (!popupCloseIntervalId) popupCloseIntervalId = setInterval(closePopups, CONFIG.POPUP_CLOSE_INTERVAL_MS);
 
-        if (CONFIG.HELPER_ENABLE_GLOBAL_AUDIO_BLOCK) {
-            if (typeof unsafeWindow.Audio !== 'undefined' && !originalAudioPlay) {
-                originalAudioPlay = unsafeWindow.Audio.prototype.play;
-                unsafeWindow.Audio.prototype.play = function() {
-                    log("Helper: Відтворення аудіо заблоковано скриптом.", "debug");
-                    return Promise.resolve();
-                };
-                log("Helper: Функцію Audio.prototype.play перевизначено для блокування звуку.", "info");
-            }
-        }
-
-        if (!helper_periodicChecksIntervalId) {
-            helper_periodicChecksIntervalId = setInterval(runHelperPeriodicChecks, CONFIG.HELPER_GIFT_CHECK_INTERVAL_MS);
-            log(`Helper: Періодичні перевірки (подарунки, сповіщення) активовано (інтервал: ${CONFIG.HELPER_GIFT_CHECK_INTERVAL_MS}ms).`, "info");
-        }
-        if (!helper_pingIntervalId) {
-            helper_pingIntervalId = setInterval(helper_startPing, CONFIG.HELPER_PING_INTERVAL_MS);
-            log(`Helper: Пінг сесії активовано (інтервал: ${CONFIG.HELPER_PING_INTERVAL_MS}ms).`, "info");
-        }
-        if (!helper_rewardCardIntervalId) {
-            helper_rewardCardIntervalId = setInterval(helper_checkNewRewardCard, CONFIG.HELPER_REWARD_CARD_INTERVAL_MS);
-            log(`Helper: Перевірка нагородних карток активовано (інтервал: ${CONFIG.HELPER_REWARD_CARD_INTERVAL_MS}ms).`, "info");
-        }
         if (controlButton) controlButton.disabled = false;
         updateButtonAppearance();
         log("DEBUG: activateFeatures FINISHED", "debug");
@@ -542,24 +687,24 @@
         log('Скрипт ДЕАКТИВОВАНО.', "info");
         if (controlButton) controlButton.disabled = true;
 
-        if (crystalObserver) { crystalObserver.disconnect(); crystalObserver = null; log("👀 MutationObserver кристалів зупинено.", "info"); }
-        if (cardFeatureObserver) { cardFeatureObserver.disconnect(); cardFeatureObserver = null; log("[CardFeature] Спостерігач за картами зупинено.", "info"); }
+        if (crystalObserver) {
+            crystalObserver.disconnect();
+            crystalObserver = null;
+            log("👀 MutationObserver кристалів зупинено.", "info");
+        }
+
+        if (cardFeatureObserver) {
+            cardFeatureObserver.disconnect();
+            cardFeatureObserver = null;
+            log("[CardFeature] Спостерігач за картами зупинено.", "info");
+        }
 
         clearInterval(afkMouseSimIntervalId); afkMouseSimIntervalId = null;
         clearInterval(popupCloseIntervalId); popupCloseIntervalId = null;
-
-        if (CONFIG.HELPER_ENABLE_GLOBAL_AUDIO_BLOCK) {
-            if (typeof unsafeWindow.Audio !== 'undefined' && originalAudioPlay) {
-                unsafeWindow.Audio.prototype.play = originalAudioPlay;
-                originalAudioPlay = null;
-                log("Helper: Функцію Audio.prototype.play відновлено до оригіналу.", "info");
-            }
+        if (controlButtonPulseIntervalId) {
+            clearInterval(controlButtonPulseIntervalId);
+            controlButtonPulseIntervalId = null;
         }
-
-        if (helper_periodicChecksIntervalId) { clearInterval(helper_periodicChecksIntervalId); helper_periodicChecksIntervalId = null; log("Helper: Періодичні перевірки деактивовано.", "info"); }
-        if (helper_pingIntervalId) { clearInterval(helper_pingIntervalId); helper_pingIntervalId = null; log("Helper: Пінг сесії деактивовано.", "info"); }
-        if (helper_rewardCardIntervalId) { clearInterval(helper_rewardCardIntervalId); helper_rewardCardIntervalId = null; log("Helper: Перевірка нагородних карток деактивовано.", "info"); }
-        if (controlButtonPulseIntervalId) { clearInterval(controlButtonPulseIntervalId); controlButtonPulseIntervalId = null; }
         removeCrystalInfoPanel();
 
         if (controlButton) controlButton.disabled = false;
@@ -570,10 +715,13 @@
     function initialSetup() {
         log("DEBUG: initialSetup called", "debug");
         loadState();
+        log(`DEBUG: initialSetup - after loadState, isScriptActive: ${isScriptActive} (type: ${typeof isScriptActive})`, "debug");
         createControlButton();
+        log("DEBUG: initialSetup - after createControlButton", "debug");
+
         if (isScriptActive === true) {
-            log("DEBUG: initialSetup - script is active, calling activateFeatures via setTimeout.", "debug");
-            setTimeout(activateFeatures, 700);
+             log("DEBUG: initialSetup - script is active, calling activateFeatures via setTimeout.", "debug");
+             setTimeout(activateFeatures, 500);
         } else {
             log('Скрипт стартує в НЕАКТИВНОМУ стані (isScriptActive: ' + isScriptActive + ').', "info");
             updateButtonAppearance();
@@ -582,13 +730,16 @@
     }
 
     try {
+        log("DEBUG: Attempting to run initialSetup logic (try...catch block)", "debug");
         if (document.readyState === 'loading') {
             window.addEventListener('DOMContentLoaded', initialSetup);
         } else {
             initialSetup();
         }
+        log("DEBUG: initialSetup logic in try...catch COMPLETED (or event listener added)", "debug");
     } catch(e) {
         console.error("[AutoCrystalScript] Критична помилка під час ініціалізації:", e);
     }
-    log("SCRIPT IIFE END", "debug");
+    log("SCRIPT EXECUTION FINISHED (IIFE end - v1.9.9 Full Integration)", "debug");
 })();
+// SCRIPT END //
