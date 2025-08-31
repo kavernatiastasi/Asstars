@@ -1,9 +1,8 @@
-// SCRIPT START //
 // ==UserScript==
 // @name              Auto Click Crystals & Anti-AFK (v2.0.0 - Improved Anti-Detection)
 // @namespace         http://tampermonkey.net/
-// @version           2.0.0
-// @description       Детальне логування для виявлення діаманта в повідомленні. Покращена версія зі зниженим ризиком блокування.
+// @version           2.1.0
+// @description       Спроба видалення дуплікатів повідомлень
 // @author            Kavernatiastasi (assisted by AI)
 // @match             https://asstars.club/*
 // @match             https://asstars1.astars.club/*
@@ -230,6 +229,12 @@
                     }
 
                     log(`[Observer] 💎 Знайдено кристал від '${CONFIG.CRYSTAL_BOT_NAME_LC}' (${timestamp}), планую клік...`, "info");
+                    clickedCrystalTimestamps.add(timestamp);
+                    if (clickedCrystalTimestamps.size > CONFIG.MAX_STORED_TIMESTAMPS) {
+                        const firstTimestamp = clickedCrystalTimestamps.values().next().value;
+                        clickedCrystalTimestamps.delete(firstTimestamp);
+                    }
+                    saveClickedTimestamps();
 
                     // MODIFIED: Added random delay before click
                     setTimeout(() => {
